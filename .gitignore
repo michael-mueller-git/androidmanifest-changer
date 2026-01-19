@@ -30,3 +30,4 @@ dist/
 
 /androidmanifest-changer
 /.tmp
+*.apk

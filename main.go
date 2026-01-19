@@ -211,6 +211,36 @@ func findFile(r *zip.ReadCloser, name string) *zip.File {
 	return nil
 }
 
+func replacePackageNames(xmlNode *XmlNode, oldPkg, newPkg string) {
+    if xmlNode == nil {
+        return
+    }
+    
+    elem := xmlNode.GetElement()
+    if elem == nil {
+        return
+    }
+    
+    // Replace in ALL attributes directly (no GetAttribute() slice copy)
+    for i := range elem.Attribute {
+        if strings.Contains(elem.Attribute[i].Value, oldPkg) {
+            oldVal := elem.Attribute[i].Value
+            elem.Attribute[i].Value = strings.ReplaceAll(oldVal, oldPkg, newPkg)
+            fmt.Printf("ATTR %s: %s -> %s\n", elem.Attribute[i].Name, oldVal, elem.Attribute[i].Value)
+        }
+    }
+    
+    // Replace in element name
+    if strings.Contains(elem.Name, oldPkg) {
+        elem.Name = strings.ReplaceAll(elem.Name, oldPkg, newPkg)
+    }
+    
+    // Recurse into CHILDREN (XmlNode -> Element)
+    for _, child := range elem.GetChild() {
+        replacePackageNames(child, oldPkg, newPkg)
+    }
+}
+
 func updateManifest(path string, config *Config) {
 	in, err := ioutil.ReadFile(path)
 	if err != nil {
@@ -221,6 +251,20 @@ func updateManifest(path string, config *Config) {
 	if err := proto.Unmarshal(in, xmlNode); err != nil {
 		log.Fatalln("Failed to parse manifest:", err)
 	}
+
+	oldPkg := ""
+	for _, attr := range xmlNode.GetElement().GetAttribute() {
+	    if attr.Name == "package" && attr.NamespaceUri == "" {
+		oldPkg = attr.Value
+		break
+	    }
+	}
+
+	newPkg := config.packageName
+	if newPkg != "" {
+		replacePackageNames(xmlNode, oldPkg, newPkg)
+	}
+
 	for _, attr := range xmlNode.GetElement().GetAttribute() {
 		if attr.GetNamespaceUri() == "" && attr.GetName() == "package" {
 			if config.packageName != "" {
