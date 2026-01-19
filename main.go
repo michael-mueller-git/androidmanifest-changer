@@ -29,12 +29,14 @@ type Config struct {
 	versionCode int32
 	versionName string
 	packageName string
+	boundaryless bool
 }
 
 func main() {
 	versionCode := flag.Uint("versionCode", 0, "The versionCode to set")
 	versionName := flag.String("versionName", "", "The versionName to set")
 	packageName := flag.String("package", "", "The package to set")
+	boundaryless := flag.Bool("boundaryless", false, "Add Oculus BOUNDARYLESS_APP uses-feature")
 	flag.Parse()
 	if len(flag.Args()) != 1 {
 		fmt.Fprintln(flag.CommandLine.Output(), "Error: File path is required.")
@@ -44,7 +46,8 @@ func main() {
 	config := &Config{
 		versionCode: int32(*versionCode),
 		versionName: *versionName,
-		packageName: *packageName,
+		packageName: *packageName, 
+		boundaryless: *boundaryless,
 	}
 
 	path := flag.Arg(0)
@@ -76,6 +79,58 @@ func updateApk(path string, config *Config) {
 	if err != nil {
 		log.Fatalln("Failed executing aapt2:", err, string(out))
 	}
+}
+
+func newUsesFeatureBoundarylessNode() *XmlNode {
+    // <uses-feature android:name="com.oculus.feature.BOUNDARYLESS_APP"
+    //               android:required="true" />
+    return &XmlNode{
+        Node: &XmlNode_Element{
+            Element: &XmlElement{
+                Name: "uses-feature",
+                Attribute: []*XmlAttribute{
+                    {
+                        NamespaceUri: namespace,
+                        Name:         "name",
+                        Value:        "com.oculus.feature.BOUNDARYLESS_APP",
+                    },
+                    {
+                        NamespaceUri: namespace,
+                        Name:         "required",
+                        Value:        "true",
+                    },
+                },
+            },
+        },
+    }
+}
+
+func ensureBoundarylessFeature(root *XmlNode) {
+    el := root.GetElement()
+    if el == nil {
+        return
+    }
+
+    // Check if feature already exists
+    for _, c := range el.Child {
+        ce := c.GetElement()
+        if ce == nil || ce.Name != "uses-feature" {
+            continue
+        }
+        var nameVal string
+        for _, a := range ce.Attribute {
+            if a.GetNamespaceUri() == namespace && a.GetName() == "name" {
+                nameVal = a.Value
+                break
+            }
+        }
+        if nameVal == "com.oculus.feature.BOUNDARYLESS_APP" {
+            return // already present
+        }
+    }
+
+    // Append new child node
+    el.Child = append(el.Child, newUsesFeatureBoundarylessNode())
 }
 
 func updateAab(path string, config *Config) {
@@ -196,6 +251,10 @@ func updateManifest(path string, config *Config) {
 			}
 		}
 	}
+
+	if config.boundaryless {
+        ensureBoundarylessFeature(xmlNode)
+    }
 
 	// We use MarshalVT because it keeps the correct field ordering.
 	// With the standard Marshal function, Android Studio can't read the resulting proto file inside aab files. :-/
